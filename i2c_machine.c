@@ -275,9 +275,7 @@ void i2c_init()
 
 	USICR = (1 << USISIE) | (1 << USIOIE) | (3 << USIWM0) | (1 << USICS1);
 
-	USI_DDR |= (1 << I2C_SCL);
-	USI_DDR &= ~(1 << I2C_SDA);
-	// USI_DDR |= (1 << I2C_SDA) | (1 << I2C_SCL);
+	USI_DDR |= (1 << I2C_SDA) | (1 << I2C_SCL);
 	USI_PORT |= (1 << I2C_SDA) | (1 << I2C_SCL);
 
 	USISR = 0xF0;
