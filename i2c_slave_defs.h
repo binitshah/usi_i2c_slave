@@ -19,13 +19,15 @@
 #define __I2C_SLAVE_DEFS__
 
 /* Set these appropriately for your platform */
-#define USI_PORT PORTB
-#define USI_DDR DDRB
+#define USI_PORT PORTA
+#define USI_DDR DDRA
+#define USI_PIN PINA
 #define I2C_SDA 0
 #define I2C_SCL 2
 
 /* Set these appropriately for your application */
-#define I2C_N_REG 2
+#define N_LEDS 5 //maximal LED count, which are accessed by the addressable led bus
+#define I2C_N_REG 3
 #define I2C_SLAVE_ADDR 0x40
 
 /*
@@ -33,8 +35,8 @@
  * writable) in the i2c_w_mask array. If you don't care about masks for each
  * individual register, you can define a global value to be used for all
  * registers here, saving flash and RAM
-#define I2C_GLOBAL_WRITE_MASK 0xFF
  */
+#define I2C_GLOBAL_WRITE_MASK 0xFF
 
 /* Define anything else your application wants to know */
 #define REG_FOO    i2c_reg[0]

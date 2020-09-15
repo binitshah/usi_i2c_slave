@@ -15,7 +15,7 @@
  *
  */
 
-#define DEBUG
+// #define DEBUG
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -45,6 +45,8 @@
 #define LED_OFF()
 #define LED_FLICKER()
 #endif
+
+uint8_t volatile i2c_reg[I2C_N_REG];
 
 volatile uint8_t i2c_update = 0;
 volatile uint8_t i2c_state = I2C_STATE_ADDR_MATCH;
@@ -144,7 +146,7 @@ ISR(USI_STRT_vect)
 {
 	i2c_state = I2C_STATE_ADDR_MATCH;
 	IDLE_SDA();
-	while (PINB & (1 << I2C_SCL));
+	while (USI_PIN & (1 << I2C_SCL));
 	USISR = 0xF0;
 }
 
@@ -159,10 +161,13 @@ ISR(USI_OVF_vect)
 	static uint8_t post_ack = 0;
 	/* Writing USISR directly has side effects! */
 	uint8_t usisr_tmp = 0xD0;
+	uint8_t sda_direction;
 	uint8_t tmp;
 
 	if (!post_ack) {
 		/* Work that needs to be done before the ACK cycle */
+		sda_direction = I2C_SDA_DIR_OUT;
+
 		switch (i2c_state) {
 		case I2C_STATE_ADDR_MATCH:
 			tmp = USIDR >> 1;
@@ -172,10 +177,10 @@ ISR(USI_OVF_vect)
 				NAK();
 			} else {
 				if (USIDR & 1) {
-					/* Transition b */
+					/* Transition b: Address matched, read mode */
 					i2c_state = I2C_STATE_MASTER_READ;
 				} else {
-					/* Transition a */
+					/* Transition a: Address matched, write mode */
 					i2c_offset = 0;
 					i2c_state = I2C_STATE_REG_ADDR;
 					i2c_update = 1;
@@ -186,19 +191,20 @@ ISR(USI_OVF_vect)
 		case I2C_STATE_REG_ADDR:
 			tmp = USIDR;
 			if (tmp > (I2C_N_REG - 1)) {
-				/* Transition i */
+				/* Transition i:  Invalid reg addr*/
 				i2c_state = I2C_STATE_IDLE;
 				NAK();
 			} else {
-				/* Transition d */
+				/* Transition d:  Initialise write*/
 				i2c_offset = tmp;
 				i2c_state = I2C_STATE_MASTER_WRITE;
 				ACK();
 			}
 			break;
 		case I2C_STATE_MASTER_READ:
-			/* Float SDA high to allow master NAK */
-			USIDR = 0x80;
+			USIDR = 0;
+			/* Listen for master NAK */
+			sda_direction = I2C_SDA_DIR_IN;
 			break;
 		case I2C_STATE_MASTER_WRITE:
 #if defined(I2C_GLOBAL_WRITE_MASK)
@@ -223,15 +229,17 @@ ISR(USI_OVF_vect)
 		post_ack = 1;
 	} else {
 		/* Work that needs to be done after the ACK cycle */
+		sda_direction = I2C_SDA_DIR_IN;
 		switch (i2c_state) {
 		case I2C_STATE_MASTER_READ:
 			if (USIDR) {
-				/* Transition e */
+				/* Transition e: Read finished */
 				i2c_offset = 0;
 				i2c_state = I2C_STATE_IDLE;
 				IDLE_SDA();
 			} else {
-				/* Transition f */
+				/* Transition f: Read continues */
+				sda_direction = I2C_SDA_DIR_OUT;
 				USIDR = i2c_reg[i2c_offset++];
 			}
 			break;
@@ -248,6 +256,13 @@ ISR(USI_OVF_vect)
 	if (i2c_offset > (I2C_N_REG - 1))
 		i2c_offset = 0;
 
+	/* Set up SDA direction for next operation */
+	if (sda_direction == I2C_SDA_DIR_OUT) {
+		USI_DDR |= (1 << I2C_SDA);
+	} else {
+		USI_DDR &= ~(1 << I2C_SDA);
+	}
+
 	/* Clear flags and set counter */
 	USISR = usisr_tmp;
 }
@@ -260,12 +275,19 @@ void i2c_init()
 
 	USICR = (1 << USISIE) | (1 << USIOIE) | (3 << USIWM0) | (1 << USICS1);
 
-	USI_DDR |= (1 << I2C_SDA) | (1 << I2C_SCL);
+	USI_DDR |= (1 << I2C_SCL);
+	USI_DDR &= ~(1 << I2C_SDA);
+	// USI_DDR |= (1 << I2C_SDA) | (1 << I2C_SCL);
 	USI_PORT |= (1 << I2C_SDA) | (1 << I2C_SCL);
 
 	USISR = 0xF0;
 }
 
+/*
+ * Return non-zero if a transaction is ongoing
+ * A transaction is considered ongoing if the slave address has
+ * been matched, but a stop has not been received yet.
+ */
 uint8_t i2c_transaction_ongoing()
 {
 	if ((i2c_state != I2C_STATE_IDLE) &&
@@ -276,6 +298,10 @@ uint8_t i2c_transaction_ongoing()
 	}
 }
 
+/*
+ * Check for and handle a stop condition.
+ * Returns non-zero if any registers have been changed
+ */
 uint8_t i2c_check_stop()
 {
 	uint8_t ret = 0;

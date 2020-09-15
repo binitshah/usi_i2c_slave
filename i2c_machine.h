@@ -42,6 +42,8 @@ uint8_t i2c_transaction_ongoing(void);
  * I2C_N_REG should be defined in i2c_slave_defs.h
  */
 extern volatile uint8_t i2c_reg[I2C_N_REG];
+
+
 #if !defined(I2C_GLOBAL_WRITE_MASK)
 /* See i2c_slave_defs.h */
 extern const uint8_t i2c_w_mask[I2C_N_REG];
